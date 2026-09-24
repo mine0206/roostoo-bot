@@ -7,3 +7,4 @@ data/
 logs/
 *.csv
 !.env.example
+.DS_Store
