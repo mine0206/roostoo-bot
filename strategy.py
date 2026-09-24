@@ -23,6 +23,14 @@ DEFAULTS = dict(
     top_n=6,          # hold at most this many coins
     max_weight=0.20,  # never more than 20% in a single coin
     cash_buffer=0.05, # keep ~5% in USD for fees / safety
+    btc_regime_ma=336,# sit in cash entirely when BTC is below its 2-week MA.
+                      # Rolling 14-day eval over ~14 months: bear-window
+                      # median drawdown -6.0% -> 0.0%, worst -11.9% -> -6.7%,
+                      # while keeping most bull-run upside (+18% vs +24%
+                      # unfiltered in the Jul-Sep 2026 rally).
+    short_top_n=0,    # >0: also short this many weakest coins (rules allow 1x short)
+                      # Tested: no improvement, more fees — left OFF.
+    short_alloc=0.30, # total short exposure as a fraction of portfolio
 )
 
 
@@ -49,10 +57,19 @@ def target_weights(prices: pd.DataFrame, params=None) -> pd.Series:
     return target portfolio weights as a Series. Empty Series = hold cash.
     """
     p = {**DEFAULTS, **(params or {})}
-    need = max(p["mom_long"], p["trend_ma"], p["vol_window"]) + 2
+    need = max(p["mom_long"], p["trend_ma"], p["vol_window"],
+               p["btc_regime_ma"]) + 2
     prices = prices.dropna(how="all")
     if len(prices) < need:
         return pd.Series(dtype=float)  # not warmed up yet -> stay in cash
+
+    # Market-level regime switch: when BTC (the market's weather vane) is
+    # below its moving average, altcoin momentum is mostly fake-outs ->
+    # hold cash and wait. This targets the Sortino/Calmar scores.
+    if p["btc_regime_ma"] > 0 and "BTC/USD" in prices.columns:
+        btc = prices["BTC/USD"]
+        if btc.iloc[-1] < btc.rolling(p["btc_regime_ma"]).mean().iloc[-1]:
+            return pd.Series(dtype=float)
 
     score = momentum_score(prices, p["mom_short"], p["mom_long"]).iloc[-1]
     trend = trend_on(prices, p["trend_ma"]).iloc[-1]
@@ -75,4 +92,18 @@ def target_weights(prices: pd.DataFrame, params=None) -> pd.Series:
     # Apply the single-coin cap, then renormalize to the invested fraction.
     weights = weights.clip(upper=p["max_weight"])
     weights = weights / weights.sum() * (1.0 - p["cash_buffer"])
+
+    # Optional shorts: weakest coins in a downtrend get negative weights.
+    # Rules allow 1x spot short; sized by |momentum| / vol, capped.
+    if p["short_top_n"] > 0:
+        shorts = score[~trend].dropna()
+        shorts = shorts[shorts < 0].sort_values().head(p["short_top_n"])
+        if not shorts.empty:
+            svol = 1.0 / vol[shorts.index]
+            sraw = shorts.abs() * svol
+            if sraw.sum() > 0:
+                sw = -(sraw / sraw.sum()).clip(upper=p["max_weight"])
+                sw = sw / sw.abs().sum() * p["short_alloc"]
+                weights = pd.concat([weights, sw])
+                weights = weights.groupby(level=0).sum()
     return weights.sort_values(ascending=False)

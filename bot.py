@@ -20,10 +20,14 @@ from datetime import datetime, timezone
 import pandas as pd
 
 import roostoo_client as api
-from risk import plan_orders, sell_all_orders
+from risk import exit_orders, plan_orders, sell_all_orders
 from strategy import target_weights
 
 LOOP_MINUTES = int(os.getenv("LOOP_MINUTES", "60"))
+# Full rebalance (entries + weight adjustments) once per day; every other
+# loop only exits coins that failed the trend filter. This mirrors the
+# backtest exactly and keeps the 0.1% taker fee from grinding returns down.
+REBALANCE_EVERY_LOOPS = int(os.getenv("REBALANCE_EVERY_LOOPS", "24"))
 UNIVERSE = [p.strip() for p in os.getenv(
     "UNIVERSE",
     "BTC/USD,ETH/USD,BNB/USD,SOL/USD,XRP/USD,ADA/USD,DOGE/USD,LINK/USD,AVAX/USD,DOT/USD",
@@ -79,7 +83,7 @@ def portfolio_value_usd(balance, price_map):
     return total
 
 
-def run_once():
+def run_once(full_rebalance=True):
     info = api.exchange_info()
     tick = api.ticker()
     data = tick.get("Data", {})
@@ -100,8 +104,12 @@ def run_once():
     if weights.empty:
         # No qualifying coins -> flatten into USD (the trend filter at work).
         orders = sell_all_orders(price_map, qty, info)
-    else:
+    elif full_rebalance:
+        # Daily: move all positions toward their target weights.
         orders = plan_orders(value, price_map, qty, weights, info)
+    else:
+        # Hourly: risk control only — dump coins that failed the trend filter.
+        orders = exit_orders(price_map, qty, weights, info)
 
     for o in orders:
         res = api.place_order(o["pair"], o["side"], o["quantity"])
@@ -113,12 +121,20 @@ def run_once():
 
 
 if __name__ == "__main__":
-    print(f"bot starting, polling every {LOOP_MINUTES} min, universe={len(UNIVERSE)} pairs")
+    print(f"bot starting, polling every {LOOP_MINUTES} min, "
+          f"full rebalance every {REBALANCE_EVERY_LOOPS} loops, "
+          f"universe={len(UNIVERSE)} pairs")
+    loop = 0
     while True:
         try:
-            n, w = run_once()
-            print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S}] cycle done, "
+            # loop 0 (startup) is always a full rebalance so we deploy capital
+            # immediately; after that, full rebalance once a day.
+            full = (loop % REBALANCE_EVERY_LOOPS == 0)
+            n, w = run_once(full_rebalance=full)
+            print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S}] cycle {loop} "
+                  f"({'full' if full else 'exits-only'}), "
                   f"{n} order(s), weights={w}")
         except Exception as e:  # never die — a crashed bot trades nothing
             print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S}] error: {e}")
+        loop += 1
         time.sleep(LOOP_MINUTES * 60)

@@ -45,13 +45,15 @@ def perf_metrics(equity: pd.Series, periods_per_year=365):
 
 def run_backtest(prices: pd.DataFrame, params=None, fee=FEE,
                  start_cash=START_CASH, warmup=WARMUP,
-                 rebalance_every=REBALANCE_EVERY):
+                 rebalance_every=REBALANCE_EVERY, allow_shorts=False):
     """
     Mirrors the live bot exactly:
       - EXITS are checked every bar: a held coin that fails the trend
         filter gets sold immediately (risk control).
       - ENTRIES / weight adjustments happen at most once a day — this
         is what keeps fees from eating the strategy alive.
+    With allow_shorts=True, quantities may go negative (1x spot short):
+    selling proceeds add cash, buying back spends it; equity handles both.
     """
     prices = prices.sort_index().ffill()
     pairs = list(prices.columns)
@@ -60,7 +62,7 @@ def run_backtest(prices: pd.DataFrame, params=None, fee=FEE,
                                     "turnover": 0.0, "fees_paid": 0.0}
 
     def do_trade(coin, pair, usd_amount, price):
-        """usd_amount > 0 = buy, < 0 = sell. Returns whether it happened."""
+        """usd_amount > 0 = buy/cover, < 0 = sell/short. Returns whether it happened."""
         nonlocal cash
         if abs(usd_amount) < 25.0:  # skip dust
             return False
@@ -73,7 +75,9 @@ def run_backtest(prices: pd.DataFrame, params=None, fee=FEE,
             trade_stats["fees_paid"] += spend * fee
             trade_stats["turnover"] += spend
         else:
-            q = min(-usd_amount / price, qty.get(coin, 0.0))
+            q = -usd_amount / price
+            if not allow_shorts:
+                q = min(q, qty.get(coin, 0.0))
             if q <= 0:
                 return False
             cash += q * price * (1 - fee)
@@ -95,14 +99,19 @@ def run_backtest(prices: pd.DataFrame, params=None, fee=FEE,
                            for p in pairs)
         traded_this_bar = False
 
-        # --- hourly exits: drop any held coin the strategy no longer wants ---
+        # --- hourly exits: drop any position the strategy no longer wants ---
         for p in pairs:
             price = bar.get(p)
             if not price or np.isnan(price):
                 continue
             coin = p.split("/")[0]
-            if qty.get(coin, 0.0) > 0 and w.get(p, 0.0) <= 1e-9:
-                if do_trade(coin, p, -qty[coin] * price, price):
+            held = qty.get(coin, 0.0)
+            tw = w.get(p, 0.0)
+            if held > 0 and tw <= 1e-9:                    # stale long -> sell
+                if do_trade(coin, p, -held * price, price):
+                    traded_this_bar = True
+            elif allow_shorts and held < 0 and tw >= -1e-9:  # stale short -> cover
+                if do_trade(coin, p, -held * price, price):
                     traded_this_bar = True
 
         # --- daily rebalance toward target weights ---

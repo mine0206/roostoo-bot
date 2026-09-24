@@ -65,6 +65,31 @@ def plan_orders(portfolio_value, prices, current_qty, target_w, exchange_info,
     return orders
 
 
+def exit_orders(prices, current_qty, target_w, exchange_info, min_notional=10.0):
+    """
+    Hourly risk control: sell any held coin the strategy no longer wants
+    (target weight ~0). This mirrors the backtest's per-bar exit check.
+    """
+    orders = []
+    meta = (exchange_info or {}).get("TradePairs", {})
+    for coin, qty in current_qty.items():
+        if coin == "USD" or qty <= 0:
+            continue
+        pair = f"{coin}/USD"
+        if target_w.get(pair, 0.0) > 1e-9:
+            continue  # still wanted — leave it for the daily rebalance
+        price = prices.get(pair)
+        if not price or price <= 0:
+            continue
+        step = 10 ** (-meta.get(pair, {}).get("AmountPrecision", 6))
+        q = round_step(qty, step)
+        if q <= 0 or q * price < min_notional:
+            continue
+        orders.append({"pair": pair, "side": "SELL",
+                       "quantity": f"{q:.8f}".rstrip("0").rstrip(".")})
+    return orders
+
+
 def sell_all_orders(prices, current_qty, exchange_info, min_notional=10.0):
     """Emergency helper: flatten every non-USD position (go to cash)."""
     orders = []
