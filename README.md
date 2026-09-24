@@ -92,7 +92,15 @@ python seed_history.py 14     # downloads ~2 weeks of hourly prices FIRST
 python bot.py                 # then start the bot — it trades from hour 1
 ```
 
-Deploy on the AWS EC2 instance Roostoo provisions — see the hackathon AWS guide. Run it under `nohup python bot.py > logs/bot.out 2>&1 &` or a systemd service so it survives disconnects. Re-run `seed_history.py` (or just `scp data/price_history.csv` up) after any redeploy with a fresh machine.
+Deploy on the AWS EC2 instance Roostoo provisions — one command:
+
+```bash
+./deploy/setup_ec2.sh <your-github-repo-url>
+```
+
+It installs Python, clones the repo, seeds history, and installs a systemd
+service (`deploy/roostoo-bot.service`) that auto-restarts the bot on crash
+or reboot. See `CHECKLIST.md` for the full competition runbook.
 
 ## Compliance checklist (Screen 1 — mandatory)
 

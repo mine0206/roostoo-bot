@@ -1,0 +1,17 @@
+[Unit]
+Description=Roostoo hackathon trading bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/roostoo-bot
+EnvironmentFile=/home/ubuntu/roostoo-bot/.env
+ExecStart=/home/ubuntu/roostoo-bot/.venv/bin/python bot.py
+# never leave the bot dead: restart on any crash, wait 30s between tries
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
