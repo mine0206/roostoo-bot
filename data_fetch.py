@@ -24,7 +24,27 @@ COIN_MAP = {
     "LINK/USD": ("chainlink", "LINKUSDT", "LINK-USD"),
     "AVAX/USD": ("avalanche-2", "AVAXUSDT", "AVAX-USD"),
     "DOT/USD": ("polkadot", "DOTUSDT", "DOT-USD"),
+    # --- widened universe: next most liquid non-stable pairs on Roostoo ---
+    "ZEC/USD": ("zcash", "ZECUSDT", "ZEC-USD"),
+    "NEAR/USD": ("near", "NEARUSDT", "NEAR-USD"),
+    "UNI/USD": ("uniswap", "UNIUSDT", "UNI-USD"),
+    "SUI/USD": ("sui", "SUIUSDT", "SUI-USD"),
+    "WLD/USD": ("worldcoin-wld", "WLDUSDT", "WLD-USD"),
+    "PEPE/USD": ("pepe", "PEPEUSDT", "PEPE-USD"),
+    "LTC/USD": ("litecoin", "LTCUSDT", "LTC-USD"),
+    "TAO/USD": ("bittensor", "TAOUSDT", "TAO-USD"),
+    "ENA/USD": ("ethena", "ENAUSDT", "ENA-USD"),
+    "TRUMP/USD": ("official-trump", "TRUMPUSDT", "TRUMP-USD"),
+    "ARB/USD": ("arbitrum", "ARBUSDT", "ARB-USD"),
+    "TRX/USD": ("tron", "TRXUSDT", "TRX-USD"),
 }
+
+# The 10 original majors
+NARROW = ["BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD",
+          "ADA/USD", "DOGE/USD", "LINK/USD", "AVAX/USD", "DOT/USD"]
+
+# Narrow + the 12 above = 22 liquid pairs (by Roostoo 24h traded value)
+WIDE = list(COIN_MAP)
 
 
 def _try_binance(pair, days):

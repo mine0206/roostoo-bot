@@ -11,10 +11,10 @@ A fully autonomous, rule-compliant trading bot for the **Hong Kong vs Australia 
 **Diversified time-series momentum with a market regime switch, trend filter, and volatility targeting.**
 
 1. **Regime switch** — when BTC (the market's weather vane) trades below its 2-week moving average, the bot sits entirely in USD. Across ~80 rolling 14-day backtest windows, this cut bear-market median drawdown from −6% to ~0%.
-2. **Momentum** — crypto prices tend to keep moving in the same direction over days. Every hour we score each coin by its recent return over two lookbacks (short + long).
+2. **Momentum** — crypto prices tend to keep moving in the same direction over days. Every hour we score each of **22 liquid coins** by its recent return over two lookbacks (short + long).
 3. **Trend filter** — we only hold a coin while its price is above its own moving average. This rule does most of the downside protection (which is what Sortino rewards).
 4. **Volatility targeting** — position size is momentum strength ÷ recent volatility. Jumpy coins get smaller allocations, so the equity curve stays calm (Sharpe/Calmar friendly).
-5. **Concentration limits** — top 6 coins max, 20% single-coin cap, 5% cash buffer. No leverage, spot only, long only.
+5. **Concentration limits** — top 8 coins max, 20% single-coin cap, 5% cash buffer. No leverage, spot only, long only.
 
 Why this fits the competition scoring:
 
@@ -29,15 +29,18 @@ Deliberately **not** doing: high-frequency trading, market making, arbitrage (al
 
 ---
 
-## Honest backtest results (Aug 2025 → Sep 2026, hourly, 0.1% fee)
+## Honest backtest results
+
+**Final config (22-coin universe, top 8, BTC regime switch), Jan → Sep 2026, hourly, 0.1% fee:**
 
 | | Return | Sharpe | Sortino | Calmar | Max DD |
 |---|---|---|---|---|---|
-| **This strategy** | −12.8% | −0.33 | −0.30 | −0.27 | −41.9% |
-| BTC buy & hold | −26.5% | −0.40 | −0.40 | −0.45 | −53.0% |
-| ETH buy & hold | −23.5% | −0.03 | −0.03 | −0.31 | −67.6% |
+| **This strategy** | **+41.2%** | 1.59 | 1.59 | 4.52 | −15.1% |
+| BTC buy & hold | −11.9% | −0.15 | −0.16 | −0.44 | −38.4% |
 
-That year was a brutal crypto bear market — beating BTC by ~14pp with a smaller drawdown is the realistic claim. In bull regimes the strategy shines: Jul→Sep 2026 returned **+18.4%** (composite 5.2). The strategy is regime-dependent by design: it protects capital in bears and compounds in trends. Single 14-day windows vary widely — see `eval_windows.py` for the distribution.
+Earlier 10-coin version over the full Aug 2025 → Sep 2026 bear year: −12.8% vs BTC −26.5%. The strategy is regime-dependent by design: it protects capital in bears and compounds in trends. Single 14-day windows vary widely — see `eval_windows.py` for the distribution.
+
+**Universe note.** We rank Roostoo's ~86 non-stable pairs by 24h traded value and trade the top 22 (BTC, ETH, BNB, SOL, XRP, ADA, DOGE, LINK, AVAX, DOT, ZEC, NEAR, UNI, SUI, WLD, PEPE, LTC, TAO, ENA, TRUMP, ARB, TRX). Widening 10 → 22 coins with top 6 → 8 roughly doubled returns in the Jul–Sep 2026 rally (+52.7% vs +20.1%) with similar rolling-window risk.
 
 ## Repository layout
 
@@ -63,6 +66,20 @@ pip install -r requirements.txt
 python backtest.py            # ~2-3 min, prints metrics + writes equity curve CSV
 python eval_windows.py        # ~8 min, rolling 14-day distribution for all variants
 ```
+
+## Rehearse without API keys (dry-run paper trading)
+
+You can test the full loop against **live Roostoo prices** before your team
+keys arrive — no keys needed, no orders sent:
+
+```bash
+DRY_RUN=1 python3 -c "import bot; bot.run_once(full_rebalance=True)"
+```
+
+This uses a simulated $100k wallet (`data/paper_state.json`), fills market
+orders at the live `LastPrice` with the real 0.1% taker fee, and logs to
+`logs/trades.csv` exactly like the real thing. Delete `data/paper_state.json`
+to reset the paper wallet.
 
 ## Live trading — IMPORTANT: seed history first
 

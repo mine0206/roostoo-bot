@@ -13,6 +13,7 @@ Nothing here is manual. Once it starts, all trades are autonomous —
 which is exactly what the competition's commit-history screen checks for.
 """
 import csv
+import json
 import os
 import time
 from datetime import datetime, timezone
@@ -28,9 +29,16 @@ LOOP_MINUTES = int(os.getenv("LOOP_MINUTES", "60"))
 # loop only exits coins that failed the trend filter. This mirrors the
 # backtest exactly and keeps the 0.1% taker fee from grinding returns down.
 REBALANCE_EVERY_LOOPS = int(os.getenv("REBALANCE_EVERY_LOOPS", "24"))
+# DRY_RUN=1: paper-trade against LIVE Roostoo prices with a simulated
+# $100k wallet (data/paper_state.json). No API keys needed, no orders sent.
+# Use this to rehearse the full loop before your keys arrive.
+DRY_RUN = os.getenv("DRY_RUN", "0") == "1"
+PAPER_STATE = "data/paper_state.json"
 UNIVERSE = [p.strip() for p in os.getenv(
     "UNIVERSE",
-    "BTC/USD,ETH/USD,BNB/USD,SOL/USD,XRP/USD,ADA/USD,DOGE/USD,LINK/USD,AVAX/USD,DOT/USD",
+    "BTC/USD,ETH/USD,BNB/USD,SOL/USD,XRP/USD,ADA/USD,DOGE/USD,LINK/USD,"
+    "AVAX/USD,DOT/USD,ZEC/USD,NEAR/USD,UNI/USD,SUI/USD,WLD/USD,PEPE/USD,"
+    "LTC/USD,TAO/USD,ENA/USD,TRUMP/USD,ARB/USD,TRX/USD",
 ).split(",")]
 HISTORY_FILE = "data/price_history.csv"
 TRADE_LOG = "logs/trades.csv"
@@ -83,6 +91,55 @@ def portfolio_value_usd(balance, price_map):
     return total
 
 
+# ---------------- dry-run (paper trading, no keys needed) ----------------
+
+def load_paper_state():
+    """Simulated wallet for DRY_RUN. Starts at the competition's $100k."""
+    if os.path.exists(PAPER_STATE):
+        with open(PAPER_STATE) as f:
+            return json.load(f)
+    return {"cash": 100_000.0, "qty": {}}
+
+
+def save_paper_state(state):
+    os.makedirs("data", exist_ok=True)
+    with open(PAPER_STATE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def paper_balance(state):
+    wallet = {"USD": {"Free": state["cash"], "Lock": 0}}
+    for coin, q in state["qty"].items():
+        wallet[coin] = {"Free": q, "Lock": 0}
+    return {"Wallet": wallet}
+
+
+def paper_fill(state, order, price_map, fee=0.001):
+    """Fill a market order at the live LastPrice with the real taker fee."""
+    coin = order["pair"].split("/")[0]
+    price = price_map.get(order["pair"])
+    q = float(order["quantity"])
+    if not price or q <= 0:
+        return {"Success": False, "DryRun": True, "ErrMsg": "no price"}
+    if order["side"] == "BUY":
+        cost = q * price * (1 + fee)
+        if cost > state["cash"]:           # scale down to available cash
+            q = state["cash"] / (price * (1 + fee))
+            cost = q * price * (1 + fee)
+        if q <= 0:
+            return {"Success": False, "DryRun": True, "ErrMsg": "no cash"}
+        state["cash"] -= cost
+        state["qty"][coin] = state["qty"].get(coin, 0.0) + q
+    else:  # SELL
+        q = min(q, state["qty"].get(coin, 0.0))
+        if q <= 0:
+            return {"Success": False, "DryRun": True, "ErrMsg": "nothing to sell"}
+        state["cash"] += q * price * (1 - fee)
+        state["qty"][coin] = state["qty"].get(coin, 0.0) - q
+    return {"Success": True, "DryRun": True,
+            "OrderDetail": {"Status": "FILLED", "FilledQty": q, "Price": price}}
+
+
 def run_once(full_rebalance=True):
     info = api.exchange_info()
     tick = api.ticker()
@@ -96,7 +153,11 @@ def run_once(full_rebalance=True):
 
     weights = target_weights(hist)
 
-    bal = api.balance()
+    if DRY_RUN:
+        state = load_paper_state()
+        bal = paper_balance(state)
+    else:
+        bal = api.balance()
     wallet = bal.get("Wallet", {})
     qty = {c: (i.get("Free", 0) or 0) for c, i in wallet.items()}
     value = portfolio_value_usd(bal, price_map)
@@ -112,10 +173,14 @@ def run_once(full_rebalance=True):
         orders = exit_orders(price_map, qty, weights, info)
 
     for o in orders:
-        res = api.place_order(o["pair"], o["side"], o["quantity"])
+        if DRY_RUN:
+            res = paper_fill(state, o, price_map)
+            save_paper_state(state)
+        else:
+            res = api.place_order(o["pair"], o["side"], o["quantity"])
+            time.sleep(2)  # stay well under rate limits
         log_trade(o, res)
         print(f"  order: {o['side']} {o['quantity']} {o['pair']} -> {res.get('Success')}")
-        time.sleep(2)  # stay well under rate limits
 
     return len(orders), weights.to_dict()
 

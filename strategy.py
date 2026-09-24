@@ -20,7 +20,8 @@ DEFAULTS = dict(
     mom_long=168,     # 1 week of bars
     trend_ma=120,     # 5-day moving average regime filter
     vol_window=72,    # 3 days of volatility
-    top_n=6,          # hold at most this many coins
+    top_n=8,          # hold at most this many coins (8 over a 22-coin
+                      # universe beat top-6-over-10 in rolling 14-day evals)
     max_weight=0.20,  # never more than 20% in a single coin
     cash_buffer=0.05, # keep ~5% in USD for fees / safety
     btc_regime_ma=336,# sit in cash entirely when BTC is below its 2-week MA.
