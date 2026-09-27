@@ -8,3 +8,4 @@ logs/
 *.csv
 !.env.example
 .DS_Store
+!data/backtest_equity.png

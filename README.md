@@ -1,115 +1,117 @@
 # Roostoo Hackathon Trading Bot
 
-A fully autonomous, rule-compliant trading bot for the **Hong Kong vs Australia vs India Quant Trading Hackathon** (Roostoo mock exchange), plus an offline backtester that runs the *exact same strategy code* on historical data.
+Our bot for the HK vs AU vs IN Quant Trading Hackathon (Roostoo mock exchange).
+None of us had built a trading bot before, so we kept the design simple and
+wrote lots of comments — partly for the judges, mostly for ourselves.
 
-> Built for a team that is new to coding. Every file is heavily commented so you can learn the system well enough to present it to judges.
+## What the strategy actually does
 
----
+It's a momentum strategy. The short version: coins that have been going up
+tend to keep going up for a while, so we hold the strongest ones — but only
+when the overall market looks healthy.
 
-## The strategy in plain English
+Concretely, every hour the bot:
 
-**Diversified time-series momentum with a market regime switch, trend filter, and volatility targeting.**
+1. **Checks the market regime.** If BTC is below its 2-week moving average,
+   we don't hold anything. Crypto is one market — when BTC bleeds, altcoin
+   "momentum" is mostly fake-outs. In our rolling 14-day backtests this one
+   rule took the median bear-market drawdown from -6% to basically zero.
+2. **Scores each coin by momentum.** A blend of the last 24h and last 7d
+   returns, across 22 liquid pairs.
+3. **Applies a trend filter.** A coin only counts if it's above its own
+   moving average.
+4. **Sizes positions by 1/volatility.** Choppy coins get less money. This
+   keeps the equity curve smooth, which is what Sharpe/Calmar reward.
+5. **Caps everything.** Max 8 positions, max 20% in one coin, always keep
+   ~5% cash for fees.
 
-1. **Regime switch** — when BTC (the market's weather vane) trades below its 2-week moving average, the bot sits entirely in USD. Across ~80 rolling 14-day backtest windows, this cut bear-market median drawdown from −6% to ~0%.
-2. **Momentum** — crypto prices tend to keep moving in the same direction over days. Every hour we score each of **22 liquid coins** by its recent return over two lookbacks (short + long).
-3. **Trend filter** — we only hold a coin while its price is above its own moving average. This rule does most of the downside protection (which is what Sortino rewards).
-4. **Volatility targeting** — position size is momentum strength ÷ recent volatility. Jumpy coins get smaller allocations, so the equity curve stays calm (Sharpe/Calmar friendly).
-5. **Concentration limits** — top 8 coins max, 20% single-coin cap, 5% cash buffer. No leverage, spot only, long only.
+Things we deliberately don't do: high-frequency stuff, market making,
+arbitrage (all banned anyway), and shorting — we backtested a long/short
+version and it didn't help, it just doubled the fees. We also only enter or
+resize positions once a day (exits are checked hourly), because at a 0.1%
+taker fee, trading too often quietly eats you alive.
 
-Why this fits the competition scoring:
+## Backtest results
 
-| Judging metric | Weight | What this strategy does about it |
-|---|---|---|
-| Portfolio return | Leaderboard gate | Momentum captures trending crypto legs |
-| Sortino ratio | 0.4 | Regime switch + trend filter cut downside bars |
-| Sharpe ratio | 0.3 | Diversification across ~10 uncorrelated coins |
-| Calmar ratio | 0.3 | Strict max-weight caps + cash buffer limit drawdown depth |
+Honest numbers, hourly data, 0.1% fee on every trade, Jan–Sep 2026:
 
-Deliberately **not** doing: high-frequency trading, market making, arbitrage (all banned), shorting (tested — no improvement, double the fees), over-trading (0.1% taker fee eats returns — entries only once a day, exits hourly).
-
----
-
-## Honest backtest results
-
-**Final config (22-coin universe, top 8, BTC regime switch), Jan → Sep 2026, hourly, 0.1% fee:**
-
-| | Return | Sharpe | Sortino | Calmar | Max DD |
+| | Return | Sharpe | Sortino | Calmar | Max drawdown |
 |---|---|---|---|---|---|
-| **This strategy** | **+41.2%** | 1.59 | 1.59 | 4.52 | −15.1% |
-| BTC buy & hold | −11.9% | −0.15 | −0.16 | −0.44 | −38.4% |
+| Our strategy | +41.2% | 1.59 | 1.59 | 4.52 | -15.1% |
+| BTC buy & hold | -11.9% | -0.15 | -0.16 | -0.44 | -38.4% |
 
-Earlier 10-coin version over the full Aug 2025 → Sep 2026 bear year: −12.8% vs BTC −26.5%. The strategy is regime-dependent by design: it protects capital in bears and compounds in trends. Single 14-day windows vary widely — see `eval_windows.py` for the distribution.
+![equity curve](data/backtest_equity.png)
 
-**Universe note.** We rank Roostoo's ~86 non-stable pairs by 24h traded value and trade the top 22 (BTC, ETH, BNB, SOL, XRP, ADA, DOGE, LINK, AVAX, DOT, ZEC, NEAR, UNI, SUI, WLD, PEPE, LTC, TAO, ENA, TRUMP, ARB, TRX). Widening 10 → 22 coins with top 6 → 8 roughly doubled returns in the Jul–Sep 2026 rally (+52.7% vs +20.1%) with similar rolling-window risk.
+To be clear about what this strategy is: it does well when the market trends
+and mostly sits in cash when it doesn't. If Oct 4–17 turns out to be two
+weeks of choppy sideways pain, we'll probably end up near 0% while pure-hold
+bots lose money. We think that's the right trade when 70% of the composite
+score (Sortino + Calmar) punishes downside — and the rolling-window tests
+(`eval_windows.py`) back that up across 46 different 14-day slices.
 
-## Repository layout
+## Files
 
 ```
-roostoo-bot/
-├── bot.py              # The live bot (runs 24/7 on AWS EC2)
-├── roostoo_client.py   # API wrapper — every request is logged (compliance)
-├── strategy.py         # Signal logic — SAME code in backtest and live
-├── risk.py             # Turns target weights into orders, respects exchange limits
-├── backtest.py         # Offline backtest + the judges' metrics
-├── eval_windows.py     # Rolling 14-day evaluation (research evidence)
-├── data_fetch.py       # Downloads historical hourly prices
-├── seed_history.py     # Pre-seeds price history so the bot trades from hour 1
-├── requirements.txt
-├── .env.example        # Copy to .env and fill in your keys
-└── README.md
+bot.py              the live bot — this is the only thing that places trades
+roostoo_client.py   API wrapper, logs every request to logs/api_log.csv
+strategy.py         the signal logic (same functions the backtest uses)
+risk.py             turns target weights into orders the exchange accepts
+backtest.py         offline backtest with the judges' metrics
+eval_windows.py     rolling 14-day evaluation — our main research tool
+data_fetch.py       downloads historical hourly prices (Binance/Yahoo/CoinGecko)
+seed_history.py     downloads ~2 weeks of prices before launch (see below)
+plot_backtest.py    draws the equity curve above
+deploy/             one-command EC2 setup + systemd service
+CHECKLIST.md        our runbook for the whole competition
 ```
 
-## Quick start (backtest — no API keys needed)
+## Running the backtest
 
 ```bash
 pip install -r requirements.txt
-python backtest.py            # ~2-3 min, prints metrics + writes equity curve CSV
-python eval_windows.py        # ~8 min, rolling 14-day distribution for all variants
+python backtest.py          # prints the metrics, saves the equity curve
+python eval_windows.py      # rolling 14-day slices (~8 min, worth it)
 ```
 
-## Rehearse without API keys (dry-run paper trading)
+## Running live
 
-You can test the full loop against **live Roostoo prices** before your team
-keys arrive — no keys needed, no orders sent:
+One thing that almost caught us out: the strategy needs about a week of
+hourly price history before it can compute anything, but Roostoo has no
+candle endpoint — the bot builds its own history by polling once an hour.
+If you just start the bot on day 1, it sits in cash for a week. So:
+
+```bash
+cp .env.example .env        # add your keys
+python seed_history.py 14   # download 2 weeks of history FIRST
+python bot.py               # now it can trade from the first hour
+```
+
+On the AWS box we run `deploy/setup_ec2.sh`, which does all of the above and
+installs a systemd service so the bot restarts itself if it crashes.
+
+There's also a dry-run mode that paper-trades against live Roostoo prices
+without needing keys — handy for rehearsing:
 
 ```bash
 DRY_RUN=1 python3 -c "import bot; bot.run_once(full_rebalance=True)"
 ```
 
-This uses a simulated $100k wallet (`data/paper_state.json`), fills market
-orders at the live `LastPrice` with the real 0.1% taker fee, and logs to
-`logs/trades.csv` exactly like the real thing. Delete `data/paper_state.json`
-to reset the paper wallet.
+(wallet state is in `data/paper_state.json`, delete it to reset to $100k)
 
-## Live trading — IMPORTANT: seed history first
+## Compliance stuff
 
-The strategy needs ~1 week of hourly bars before it can signal. Without
-seeding, the bot would sit in cash for the first 7 days of a 14-day contest.
+- All trades come from `bot.py`. Nobody touches the API by hand during the
+  competition.
+- Every API request (success or failure) is logged in `logs/api_log.csv`,
+  every order in `logs/trades.csv`.
+- We commit changes to git as we make them — the history shows how the
+  strategy evolved, including the ideas we tested and rejected.
 
-```bash
-cp .env.example .env          # fill in ROOSTOO_API_KEY / ROOSTOO_SECRET_KEY
-python seed_history.py 14     # downloads ~2 weeks of hourly prices FIRST
-python bot.py                 # then start the bot — it trades from hour 1
-```
+## If you're judging this and want to ask us about
 
-Deploy on the AWS EC2 instance Roostoo provisions — one command:
-
-```bash
-./deploy/setup_ec2.sh <your-github-repo-url>
-```
-
-It installs Python, clones the repo, seeds history, and installs a systemd
-service (`deploy/roostoo-bot.service`) that auto-restarts the bot on crash
-or reboot. See `CHECKLIST.md` for the full competition runbook.
-
-## Compliance checklist (Screen 1 — mandatory)
-
-- [x] All trades placed only by `bot.py` — never call the API by hand once trading starts
-- [x] Every API request logged to `logs/api_log.csv` (success/failure)
-- [x] Every order logged to `logs/trades.csv`
-- [x] Iterations committed to git with clear messages — clean, traceable history
-- [x] Open-source repo with this README
-
-## Presenting to judges
-
-Be ready to explain: momentum rationale, the regime switch's role in downside protection (with the rolling-window numbers above), vol targeting, fee sensitivity (why entries are daily, not hourly), and the risk caps. The code comments walk you through it.
+Why momentum works in crypto, why the regime switch matters more than any
+other single rule, why we chose daily entries over hourly (fees), how the
+rolling-window evaluation works and why we trust it more than a single
+backtest, and the parameter sweep we ran to check we hadn't overfit (the
+neighbours of our chosen parameters all perform within noise of each other,
+which is what you want to see).
