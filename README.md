@@ -98,6 +98,26 @@ DRY_RUN=1 python3 -c "import bot; bot.run_once(full_rebalance=True)"
 
 (wallet state is in `data/paper_state.json`, delete it to reset to $100k)
 
+## Using it after the competition (Futu)
+
+The broker code is a separate module from the strategy, so we wrote a second
+client (`futu_client.py`) that talks to Futu's OpenAPI — same function
+signatures as `roostoo_client.py`, nothing else changes. To run the bot
+through a Futu paper account:
+
+```bash
+pip install "futu-api>=10.5.6508"   # needs OpenD running locally too
+# in .env: BROKER_CLIENT=futu_client and FUTU_TRD_ENV=SIMULATE
+python seed_history.py 14
+python bot.py
+```
+
+Written against the API docs, not yet battle-tested — SIMULATE mode first.
+One thing we learned while researching this: retail brokers charge around a
+1% spread on crypto, which is 10x what this strategy assumes in fees. If we
+ever run it for real money it would be through a proper exchange API
+(ccxt), not a stock broker.
+
 ## Compliance stuff
 
 - All trades come from `bot.py`. Nobody touches the API by hand during the
