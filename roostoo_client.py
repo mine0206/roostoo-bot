@@ -90,10 +90,7 @@ def exchange_info():
     return _public_get("/v3/exchangeInfo")
 
 
-def ticker(pair=None, universe=None):
-    """All pairs when called with no args (universe is accepted for
-    signature compatibility with futu_client.py and ignored — Roostoo
-    returns everything anyway)."""
+def ticker(pair=None):
     params = {"timestamp": _timestamp_ms()}
     if pair:
         params["pair"] = pair

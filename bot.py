@@ -20,13 +20,9 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-import importlib
-
 import pandas as pd
 
-# Which broker client to use: roostoo_client (competition default) or
-# futu_client (personal use, set BROKER_CLIENT=futu_client in .env).
-api = importlib.import_module(os.getenv("BROKER_CLIENT", "roostoo_client"))
+import roostoo_client as api
 from risk import exit_orders, plan_orders, sell_all_orders
 from strategy import target_weights
 
@@ -148,7 +144,7 @@ def paper_fill(state, order, price_map, fee=0.001):
 
 def run_once(full_rebalance=True):
     info = api.exchange_info()
-    tick = api.ticker(universe=UNIVERSE)
+    tick = api.ticker()
     data = tick.get("Data", {})
     price_map = {k: v.get("LastPrice") for k, v in data.items() if k in UNIVERSE}
 
