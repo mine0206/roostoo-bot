@@ -79,9 +79,24 @@ def log_trade(order, response):
         ])
 
 
+def spot_wallet(balance_response):
+    """
+    Extract the wallet dict from a /v3/balance response.
+    The live API returns 'SpotWallet' (+ 'MarginWallet'); older docs showed
+    'Wallet'. Support both so we never silently read an empty wallet.
+    """
+    if not isinstance(balance_response, dict):
+        return {}
+    for key in ("SpotWallet", "Wallet", "MarginWallet"):
+        w = balance_response.get(key)
+        if isinstance(w, dict) and w:
+            return w
+    return balance_response.get("SpotWallet") or balance_response.get("Wallet") or {}
+
+
 def portfolio_value_usd(balance, price_map):
     total = 0.0
-    for coin, info in balance.get("Wallet", {}).items():
+    for coin, info in spot_wallet(balance).items():
         free = info.get("Free", 0) or 0
         locked = info.get("Lock", 0) or 0
         if coin == "USD":
@@ -160,7 +175,7 @@ def run_once(full_rebalance=True):
         bal = paper_balance(state)
     else:
         bal = api.balance()
-    wallet = bal.get("Wallet", {})
+    wallet = spot_wallet(bal)
     qty = {c: (i.get("Free", 0) or 0) for c, i in wallet.items()}
     value = portfolio_value_usd(bal, price_map)
 

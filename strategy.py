@@ -24,11 +24,14 @@ DEFAULTS = dict(
                       # universe beat top-6-over-10 in rolling 14-day evals)
     max_weight=0.20,  # never more than 20% in a single coin
     cash_buffer=0.05, # keep ~5% in USD for fees / safety
-    btc_regime_ma=336,# sit in cash entirely when BTC is below its 2-week MA.
-                      # Rolling 14-day eval over ~14 months: bear-window
-                      # median drawdown -6.0% -> 0.0%, worst -11.9% -> -6.7%,
-                      # while keeping most bull-run upside (+18% vs +24%
-                      # unfiltered in the Jul-Sep 2026 rally).
+    btc_regime_ma=336,# sit (almost) fully in cash when BTC is below its 2-week MA.
+                      # Rolling 14-day eval: bear-window median drawdown -6.0%
+                      # -> ~0%, worst -11.9% -> -6.7%, keeping most bull upside.
+    min_invested=0.10,# NEVER go fully flat: even in risk-off, hold this small
+                      # sleeve in the single strongest coin. The competition
+                      # requires >=8 active trading days with strategy trades;
+                      # a bot that sits 100% in cash for days would fail that.
+                      # Cost in bears is tiny (10% of one coin's drawdown).
     short_top_n=0,    # >0: also short this many weakest coins (rules allow 1x short)
                       # Tested: no improvement, more fees — left OFF.
     short_alloc=0.30, # total short exposure as a fraction of portfolio
@@ -64,30 +67,39 @@ def target_weights(prices: pd.DataFrame, params=None) -> pd.Series:
     if len(prices) < need:
         return pd.Series(dtype=float)  # not warmed up yet -> stay in cash
 
-    # Market-level regime switch: when BTC (the market's weather vane) is
-    # below its moving average, altcoin momentum is mostly fake-outs ->
-    # hold cash and wait. This targets the Sortino/Calmar scores.
-    if p["btc_regime_ma"] > 0 and "BTC/USD" in prices.columns:
-        btc = prices["BTC/USD"]
-        if btc.iloc[-1] < btc.rolling(p["btc_regime_ma"]).mean().iloc[-1]:
-            return pd.Series(dtype=float)
-
     score = momentum_score(prices, p["mom_short"], p["mom_long"]).iloc[-1]
     trend = trend_on(prices, p["trend_ma"]).iloc[-1]
     vol = volatility(prices, p["vol_window"]).iloc[-1].replace(0, np.nan)
+
+    def compliance_sleeve():
+        """Smallest defensible position: min_invested in the strongest coin,
+        whatever the filters say. Keeps the bot trading every day (the
+        contest requires >=8 active days) at minimal risk cost."""
+        s = score.dropna()
+        if s.empty or p["min_invested"] <= 0:
+            return pd.Series(dtype=float)
+        return pd.Series({s.idxmax(): p["min_invested"]})
+
+    # Market-level regime switch: when BTC (the market's weather vane) is
+    # below its moving average, altcoin momentum is mostly fake-outs ->
+    # shrink to the compliance sleeve and wait.
+    if p["btc_regime_ma"] > 0 and "BTC/USD" in prices.columns:
+        btc = prices["BTC/USD"]
+        if btc.iloc[-1] < btc.rolling(p["btc_regime_ma"]).mean().iloc[-1]:
+            return compliance_sleeve()
 
     # Only long, only coins in an uptrend, only positive momentum.
     candidates = score[trend].dropna()
     candidates = candidates[candidates > 0]
     if candidates.empty:
-        return pd.Series(dtype=float)
+        return compliance_sleeve()
 
     # Best N coins, sized by momentum strength / volatility.
     top = candidates.sort_values(ascending=False).head(p["top_n"])
     inv_vol = 1.0 / vol[top.index]
     raw = top.clip(lower=0) * inv_vol
     if raw.sum() <= 0:
-        return pd.Series(dtype=float)
+        return compliance_sleeve()
     weights = raw / raw.sum()
 
     # Apply the single-coin cap, then renormalize to the invested fraction.
