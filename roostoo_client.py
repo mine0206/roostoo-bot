@@ -17,6 +17,12 @@ from datetime import datetime, timezone
 
 import requests
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # reads .env in the project root, if present
+except ImportError:
+    pass  # env vars can also come from the shell / systemd EnvironmentFile
+
 BASE_URL = os.getenv("ROOSTOO_BASE_URL", "https://mock-api.roostoo.com")
 API_KEY = os.getenv("ROOSTOO_API_KEY", "")
 SECRET_KEY = os.getenv("ROOSTOO_SECRET_KEY", "")

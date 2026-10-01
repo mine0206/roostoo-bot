@@ -48,7 +48,10 @@ TRADE_LOG = "logs/trades.csv"
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
-        df = pd.read_csv(HISTORY_FILE, index_col=0, parse_dates=True)
+        df = pd.read_csv(HISTORY_FILE, index_col=0)
+        # lenient parse: the file may mix timestamp formats written by
+        # seed_history.py and by the bot itself across restarts
+        df.index = pd.to_datetime(df.index, utc=True, format="mixed")
         # keep only our universe, in a stable column order
         return df.reindex(columns=UNIVERSE)
     return pd.DataFrame(columns=UNIVERSE)

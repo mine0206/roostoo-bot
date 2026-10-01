@@ -34,7 +34,10 @@ def seed(days=14):
     fresh.index.name = "timestamp"
 
     if os.path.exists(HISTORY_FILE):
-        existing = pd.read_csv(HISTORY_FILE, index_col=0, parse_dates=True)
+        existing = pd.read_csv(HISTORY_FILE, index_col=0)
+        # rows may mix timestamp formats (seed file vs bot-appended rows);
+        # parse leniently so concat/sort never chokes on str-vs-Timestamp
+        existing.index = pd.to_datetime(existing.index, utc=True, format="mixed")
         combined = pd.concat([existing, fresh])
         combined = combined[~combined.index.duplicated(keep="last")]
     else:
